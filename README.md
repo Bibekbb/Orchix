@@ -1,7 +1,7 @@
 # Orchestr8
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/orchestr8/brand/main/logo/hero-light.svg" alt="Orchestr8 Logo" width="600">
+  <img src="assets/logo.png" alt="Orchestr8 Logo" width="600">
 </p>
 
 <h1 align="center">
@@ -215,5 +215,5 @@ Apache 2.0 — see [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  <strong>Star ⭐ the repo if Orchestr8 simplifies your infrastructure</strong>
+  <strong>Star ⭐ the repo if Orchestr8 <img src="assets/logo.png" alt="Orchestr8 Logo" width="600"> simplifies your infrastructure</strong>
 </p>
