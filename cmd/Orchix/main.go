@@ -36,7 +36,10 @@ func main() {
 			}
 
 			// Create and run engine
-			engine := cli.NewEngine(manifest)
+			engine, err := cli.NewEngine(manifest)
+			if err != nil {
+				return fmt.Errorf("failed to create engine: %w", err)
+			}
 			return engine.Deploy(cmd.Context(), dryRun)
 		},
 	}
@@ -54,8 +57,11 @@ func main() {
 				return err
 			}
 
-			engine := cli.NewEngine(manifest)
-			return engine.Destroy(cmd.Context())
+			engine, err := cli.NewEngine(manifest)
+			if err != nil {
+				return fmt.Errorf("failed to create engine: %w", err)
+			}
+			return engine.Deploy(cmd.Context(), dryRun)
 		},
 	}
 
@@ -68,8 +74,11 @@ func main() {
 				return err
 			}
 
-			engine := cli.NewEngine(manifest)
-			return engine.Status(cmd.Context())
+			engine, err := cli.NewEngine(manifest)
+			if err != nil {
+				return fmt.Errorf("failed to create engine: %w", err)
+			}
+			return engine.Deploy(cmd.Context(), dryRun)
 		},
 	}
 

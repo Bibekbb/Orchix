@@ -30,12 +30,26 @@ func LoadManifest(configFile string) (*types.Manifest, error) {
 	return &manifest, nil
 }
 
-func NewEngine(manifest *types.Manifest) *core.Engine {
+func NewEngine(manifest *types.Manifest) (*core.Engine, error) {
 	engine := core.NewEngine(manifest)
 
-	// Register providers
-	engine.RegisterProvider(types.ComponentTypeTerraform, terraform.NewTerraformProvider())
-	engine.RegisterProvider(types.ComponentTypeKubernetes, kubernetes.NewKubernetesProvider(""))
+	// Register Terraform provider (no error)
+	engine.RegisterProvider(
+		types.ComponentTypeTerraform,
+		terraform.NewTerraformProvider(),
+	)
 
-	return engine
+	// Register Kubernetes provider (handle error)
+	k8sProvider, err := kubernetes.NewKubernetesProvider("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize kubernetes provider: %w", err)
+	}
+
+	engine.RegisterProvider(
+		types.ComponentTypeKubernetes,
+		k8sProvider,
+	)
+
+	return engine, nil
 }
+
