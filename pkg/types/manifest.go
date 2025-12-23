@@ -1,4 +1,7 @@
+// pkg/types/manifest.go
 package types
+
+import "time"
 
 type Manifest struct {
 	APIVersion string            `yaml:"apiVersion"`
@@ -36,6 +39,23 @@ type HealthCheck struct {
 }
 
 type SecretRef struct {
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
+	Name   string `yaml:"name"`
+	Source string `yaml:"source"`
+	Key    string `yaml:"key"`
 }
+
+type ComponentState struct {
+	Status    ComponentStateType `json:"status"`
+	Outputs   map[string]string  `json:"outputs,omitempty"`
+	Timestamp time.Time          `json:"timestamp"`
+}
+
+type ComponentStateType string
+
+const (
+	StatePending   ComponentStateType = "pending"
+	StateDeploying ComponentStateType = "deploying"
+	StateDeployed  ComponentStateType = "deployed"
+	StateFailed    ComponentStateType = "failed"
+	StateDestroyed ComponentStateType = "destroyed"
+)

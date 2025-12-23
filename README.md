@@ -1,11 +1,11 @@
-# Orchestr8
+# Orchix
 
 <p align="center">
-  <img src="assets/logo.png" alt="Orchestr8 Logo" width="150">
+  <img src="assets/logo.png" alt="Orchix Logo" width="150">
 </p>
 
 <h1 align="center">
-  Orchestr8
+  Orchix
   <br>
   <small style="font-size: 0.4em; font-weight: 300; color: #6b7280;">
     One Manifest. Every Environment. Effortlessly.
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/orchestr8/orchestr8/releases">
+  <a href="https://github.com/Orchix/Orchix/releases">
     <img src="https://img.shields.io/badge/version-0.3.0-8b5cf6?style=for-the-badge" alt="Version">
   </a>
   <a href="https://golang.org">
@@ -26,8 +26,8 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache_2.0-34d399?style=for-the-badge" alt="License">
   </a>
-  <a href="https://github.com/orchestr8/orchestr8/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/orchestr8/orchestr8/ci.yml?style=for-the-badge" alt="CI Status">
+  <a href="https://github.com/Orchix/Orchix/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/Orchix/Orchix/ci.yml?style=for-the-badge" alt="CI Status">
   </a>
 </p>
 
@@ -42,7 +42,7 @@
 
 ---
 
-## ✨ Why Orchestr8?
+## ✨ Why Orchix?
 
 | Problem | Solution |
 |------|------|
@@ -59,13 +59,13 @@
 
 ```bash
 # macOS / Linux
-brew install orchestr8/tap/orchestr8
+brew install Orchix/tap/Orchix
 
 # Windows
-winget install Orchestr8.Orchestr8
+winget install Orchix.Orchix
 
 # Docker
-docker run --rm -v ${PWD}:/app ghcr.io/orchestr8/orchestr8:latest
+docker run --rm -v ${PWD}:/app ghcr.io/Orchix/Orchix:latest
 ````
 
 ### First Deployment
@@ -85,10 +85,10 @@ components:
 ```
 
 ```bash
-orchestr8 plan
-orchestr8 deploy
-orchestr8 status
-orchestr8 destroy
+Orchix plan
+Orchix deploy
+Orchix status
+Orchix destroy
 ```
 
 ---
@@ -154,7 +154,7 @@ components:
 
 ## 📊 Feature Comparison
 
-| Feature                  | Orchestr8 | Terraform | Helm |
+| Feature                  | Orchix | Terraform | Helm |
 | ------------------------ | --------- | --------- | ---- |
 | Multi-tool orchestration | ✅         | ❌         | ❌    |
 | Dependency graph         | ✅         | ⚠️        | ⚠️   |
@@ -166,8 +166,8 @@ components:
 ## 🛠 Development
 
 ```bash
-git clone https://github.com/orchestr8/orchestr8.git
-cd orchestr8
+git clone https://github.com/Orchix/Orchix.git
+cd Orchix
 
 make deps
 make test
@@ -215,5 +215,5 @@ Apache 2.0 — see [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  <strong>Star ⭐ the repo if Orchestr8 simplifies your infrastructure</strong>
+  <strong>Star ⭐ the repo if Orchix simplifies your infrastructure</strong>
 </p>

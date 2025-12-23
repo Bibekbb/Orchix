@@ -1,11 +1,13 @@
 package core
 
 import (
-    "github.com/Bibekbb/orchestr8/pkg/types"
+	"fmt"
+
+	"github.com/Bibekbb/Orchix/pkg/types"
 )
 
 type DependencyGraph struct {
-	node map[string]*types.Component
+	nodes map[string]*types.Component
 	edges map[string][]string
 }
 
@@ -16,19 +18,19 @@ func NewDependencyGraph() *DependencyGraph {
 	}
 }
 
-func (g *DependencyGraph) AddNode(id string, comp *types.Component){
+func (g *DependencyGraph) AddNode(id string, comp types.Component) {
 	g.nodes[id] = &comp
 }
 
-func (g *DependencyGraph) AddNode(id string, comp *types.Component) {
-	g.nodes[from] = append(g.edges[from], to)
+func (g *DependencyGraph) AddEdge(from, to string) {
+	g.edges[from] = append(g.edges[from], to)
 }
 
-// Kahn's Algorithm for topological sort 
-func (f *DependencyGraph) GetExecutionOrder() ([][]string, error) {
-	// Calculate in-degree for each node
+// Kahn's Algorithm for topological sort
+func (g *DependencyGraph) GetExecutionOrder() ([][]string, error) {
+	// Calculate in-degrees
 	inDegree := make(map[string]int)
-	for node:= range g.nodes {
+	for node := range g.nodes {
 		inDegree[node] = 0
 	}
 	for _, deps := range g.edges {
@@ -37,7 +39,7 @@ func (f *DependencyGraph) GetExecutionOrder() ([][]string, error) {
 		}
 	}
 
-	// Initialize queue with nodes having zero in-degree
+	// Initialize queue with nodes having 0 in-degree
 	var queue []string
 	for node, degree := range inDegree {
 		if degree == 0 {
@@ -57,7 +59,7 @@ func (f *DependencyGraph) GetExecutionOrder() ([][]string, error) {
 			queue = queue[1:]
 			currentLevel = append(currentLevel, node)
 
-			// Reduce in-degree for neighbors
+			// Reduce in-degree of neighbors
 			for _, neighbor := range g.edges[node] {
 				inDegree[neighbor]--
 				if inDegree[neighbor] == 0 {
@@ -69,7 +71,7 @@ func (f *DependencyGraph) GetExecutionOrder() ([][]string, error) {
 		result = append(result, currentLevel)
 	}
 
-	// Check for cycle 
+	// Check for cycles
 	for _, degree := range inDegree {
 		if degree > 0 {
 			return nil, fmt.Errorf("dependency cycle detected")
