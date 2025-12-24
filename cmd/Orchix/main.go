@@ -5,84 +5,62 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-
-	"github.com/Bibekbb/Orchix/internal/cli"
 )
 
+var Version = "v0.1.0-dev"
+
 func main() {
-	var configFile string
-	var dryRun bool
-	var target string
-
-	var rootCmd = &cobra.Command{
-		Use:   "orchix",
-		Short: "Unified deployment orchestrator",
-		Long:  "Orchix - Declarative deployment orchestrator for modern application stacks",
+	rootCmd := &cobra.Command{
+		Use:     "orchix",
+		Short:   "Orchix - Deployment Orchestrator",
+		Version: Version,
 	}
 
-	var deployCmd = &cobra.Command{
+	// Set custom version template
+	rootCmd.SetVersionTemplate(`Orchix: {{.Version}}`)
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print version",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("Orchix: %s\n", Version)
+		},
+	}
+
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize project",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Project initialized")
+		},
+	}
+
+	deployCmd := &cobra.Command{
 		Use:   "deploy",
-		Short: "Deploy application stack",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// Load manifest
-			manifest, err := cli.LoadManifest(configFile)
-			if err != nil {
-				return fmt.Errorf("failed to load manifest: %w", err)
-			}
-
-			// Override target if specified
-			if target != "" {
-				manifest.Target = target
-			}
-
-			// Create and run engine
-			engine, err := cli.NewEngine(manifest)
-			if err != nil {
-				return fmt.Errorf("failed to create engine: %w", err)
-			}
-			return engine.Deploy(cmd.Context(), dryRun)
+		Short: "Deploy stack",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Deploying...")
 		},
 	}
 
-	deployCmd.Flags().StringVarP(&configFile, "config", "c", "orchix.yaml", "Manifest file")
-	deployCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without applying")
-	deployCmd.Flags().StringVarP(&target, "target", "t", "", "Override target environment")
-
-	var destroyCmd = &cobra.Command{
+	destroyCmd := &cobra.Command{
 		Use:   "destroy",
-		Short: "Destroy application stack",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			manifest, err := cli.LoadManifest(configFile)
-			if err != nil {
-				return err
-			}
-
-			engine, err := cli.NewEngine(manifest)
-			if err != nil {
-				return fmt.Errorf("failed to create engine: %w", err)
-			}
-			return engine.Deploy(cmd.Context(), dryRun)
+		Short: "Destroy stack",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Destroying...")
 		},
 	}
 
-	var statusCmd = &cobra.Command{
+	statusCmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show deployment status",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			manifest, err := cli.LoadManifest(configFile)
-			if err != nil {
-				return err
-			}
-
-			engine, err := cli.NewEngine(manifest)
-			if err != nil {
-				return fmt.Errorf("failed to create engine: %w", err)
-			}
-			return engine.Deploy(cmd.Context(), dryRun)
+		Short: "Show status",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Status: Running")
 		},
 	}
 
-	rootCmd.AddCommand(deployCmd, destroyCmd, statusCmd)
+	// Add all commands
+	rootCmd.AddCommand(versionCmd, initCmd, deployCmd, destroyCmd, statusCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
