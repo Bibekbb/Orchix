@@ -6,35 +6,42 @@ import (
 	"github.com/Bibekbb/Orchix/pkg/types"
 )
 
+// Provider defines the interface for all deployment providers
 type Provider interface {
 	Name() string
-	Plan(ctx context.Context, comp types.Component, variables map[string]string) (*PlanResult, error)
-	Apply(ctx context.Context, comp types.Component, variables map[string]string) (*ApplyResult, error)
-	Destroy(ctx context.Context, comp types.Component, variables map[string]string) error
-	GetStatus(ctx context.Context, comp types.Component) (*ComponentStatus, error)
+	Plan(ctx context.Context, comp types.Component) (PlanResult, error)
+	Apply(ctx context.Context, comp types.Component) (ApplyResult, error)
+	Destroy(ctx context.Context, comp types.Component) error
+	Status(ctx context.Context, comp types.Component) (StatusResult, error)
 }
 
+// PlanResult contains information about planned changes
 type PlanResult struct {
 	Changes []Change          `json:"changes"`
-	Outputs map[string]string `json:"outputs,omitempty"`
+	Outputs map[string]string `json:"outputs"`
 }
 
+// ApplyResult contains information about applied changes
 type ApplyResult struct {
 	Outputs map[string]string `json:"outputs"`
 }
 
-type ComponentStatus struct {
+// StatusResult contains component status information
+type StatusResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
 	Healthy bool   `json:"healthy"`
-	Message string `json:"message,omitempty"`
 }
 
+// Change represents a single change to be made
 type Change struct {
 	Type    ChangeType  `json:"type"`
 	Address string      `json:"address"`
-	From    interface{} `json:"from,omitempty"`
-	To      interface{} `json:"to,omitempty"`
+	Before  interface{} `json:"before,omitempty"`
+	After   interface{} `json:"after,omitempty"`
 }
 
+// ChangeType defines the type of change
 type ChangeType string
 
 const (

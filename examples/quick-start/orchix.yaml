@@ -1,0 +1,42 @@
+apiVersion: v1alpha1
+appName: quick-start-demo
+target: local-docker
+
+variables:
+  environment: development
+  version: "1.0.0"
+
+components:
+  - id: database
+    name: PostgreSQL Database
+    type: docker
+    source: ./docker/postgres
+    variables:
+      port: 5432
+      password: "secret123"
+
+  - id: backend
+    name: Backend API
+    type: docker
+    source: ./docker/backend
+    depends_on: [database]
+    variables:
+      port: 8080
+      db_url: "postgres://postgres:secret123@database:5432/mydb"
+
+  - id: frontend
+    name: Frontend Web
+    type: docker
+    source: ./docker/frontend
+    depends_on: [backend]
+    variables:
+      port: 3000
+      api_url: "http://backend:8080"
+
+  - id: monitoring
+    name: Monitoring Stack
+    type: docker
+    source: ./docker/monitoring
+    depends_on: [backend, frontend]
+    variables:
+      port: 9090

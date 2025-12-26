@@ -1,68 +1,34 @@
-# orchix.yaml
+# Example Orchix Manifest
 apiVersion: v1alpha1
-appName: my-awesome-app
-target: staging-aws
+appName: test-application
+target: local-docker
 
 variables:
-  environment: staging
-  region: us-west-2
-  db_instance_class: db.t3.small
-
-secrets:
-  - name: database_password
-    source: aws-secrets-manager
-    key: /apps/my-app/db-password
+  environment: test
+  version: "1.0.0"
 
 components:
-  - id: network
-    name: VPC and Networking
-    type: terraform
-    source: ./infra/network
-    variables:
-      region: ${region}
-      environment: ${environment}
-
-  - id: database
-    name: PostgreSQL Database
-    type: terraform
-    source: ./infra/database
-    depends_on: [network]
-    variables:
-      instance_class: ${db_instance_class}
-      password_secret: ${secrets.database_password}
-
   - id: redis
     name: Redis Cache
-    type: terraform
-    source: ./infra/redis
-    depends_on: [network]
+    type: docker
+    source: ./docker/redis
+    variables:
+      port: 6379
 
   - id: backend
-    name: Backend API Service
-    type: kubernetes
-    source: ./k8s/backend
-    depends_on: [database, redis]
-    healthCheck:
-      type: http
-      endpoint: /health
-      interval: 5
-      timeout: 300
+    name: Backend Service
+    type: docker
+    source: ./docker/backend
+    depends_on: [redis]
+    variables:
+      port: 8080
+      redis_url: "redis://redis:6379"
 
   - id: frontend
-    name: Frontend Web App
-    type: kubernetes
-    source: ./k8s/frontend
+    name: Frontend Application
+    type: docker
+    source: ./docker/frontend
     depends_on: [backend]
-    healthCheck:
-      type: http
-      endpoint: /
-      interval: 5
-      timeout: 300
-
-  - id: monitoring
-    name: Monitoring Stack
-    type: helm
-    source: stable/prometheus-operator
-    depends_on: [backend, frontend]
     variables:
-      grafana.enabled: true
+      port: 3000
+      api_url: "http://backend:8080"

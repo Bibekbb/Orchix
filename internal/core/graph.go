@@ -6,11 +6,13 @@ import (
 	"github.com/Bibekbb/Orchix/pkg/types"
 )
 
+// DependencyGraph manages component dependencies
 type DependencyGraph struct {
 	nodes map[string]*types.Component
-	edges map[string][]string
+	edges map[string][]string // adjacency list
 }
 
+// NewDependencyGraph creates a new graph
 func NewDependencyGraph() *DependencyGraph {
 	return &DependencyGraph{
 		nodes: make(map[string]*types.Component),
@@ -18,28 +20,32 @@ func NewDependencyGraph() *DependencyGraph {
 	}
 }
 
+// AddNode adds a component to the graph
 func (g *DependencyGraph) AddNode(id string, comp types.Component) {
 	g.nodes[id] = &comp
 }
 
+// AddEdge adds a dependency edge
 func (g *DependencyGraph) AddEdge(from, to string) {
 	g.edges[from] = append(g.edges[from], to)
 }
 
-// Kahn's Algorithm for topological sort
+// GetExecutionOrder returns the deployment order
 func (g *DependencyGraph) GetExecutionOrder() ([][]string, error) {
 	// Calculate in-degrees
 	inDegree := make(map[string]int)
 	for node := range g.nodes {
 		inDegree[node] = 0
 	}
-	for _, deps := range g.edges {
-		for _, dep := range deps {
-			inDegree[dep]++
+
+	// Count incoming edges
+	for _, neighbors := range g.edges {
+		for _, neighbor := range neighbors {
+			inDegree[neighbor]++
 		}
 	}
 
-	// Initialize queue with nodes having 0 in-degree
+	// Find nodes with 0 in-degree (no dependencies)
 	var queue []string
 	for node, degree := range inDegree {
 		if degree == 0 {
@@ -49,7 +55,7 @@ func (g *DependencyGraph) GetExecutionOrder() ([][]string, error) {
 
 	var result [][]string
 
-	// Process nodes level by level
+	// Process in levels (topological sort)
 	for len(queue) > 0 {
 		levelSize := len(queue)
 		currentLevel := make([]string, 0, levelSize)
@@ -74,7 +80,7 @@ func (g *DependencyGraph) GetExecutionOrder() ([][]string, error) {
 	// Check for cycles
 	for _, degree := range inDegree {
 		if degree > 0 {
-			return nil, fmt.Errorf("dependency cycle detected")
+			return nil, fmt.Errorf("cyclic dependency detected")
 		}
 	}
 

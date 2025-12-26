@@ -1,0 +1,34 @@
+# Binaries
+orchix
+orchix-agent
+dist/
+*.exe
+
+# Go
+vendor/
+*.test
+*.prof
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Orchix
+.orchix/
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Logs
+*.log
+logs/
+
+# Test
+coverage.txt
