@@ -1,30 +1,35 @@
 package types
 
-// Manifest represents the complete Orchix deployment configuration
 type Manifest struct {
-	APIVersion string            `yaml:"apiVersion"`
-	AppName    string            `yaml:"appName"`
-	Target     string            `yaml:"target"`
-	Variables  map[string]string `yaml:"variables,omitempty"`
-	Components []Component       `yaml:"components"`
+	APIVersion 	string					`yaml:"apiVersion"`
+	AppName 	string					`yaml:"appName"`
+	Target 		string					`yaml:"target"`
+	Description string					`yaml:"description,omitempty"`
+	Variables	map[string]interface{}	`yaml:"variables,omitempty"`
+	Secrets		[]SecretRef				`yaml:"secrets,omitempty"`
+	Components	[]Component				`yaml:"components"`
 }
 
-// Component represents a single deployable unit
 type Component struct {
-	ID        string            `yaml:"id"`
-	Name      string            `yaml:"name"`
-	Type      ComponentType     `yaml:"type"`
-	Source    string            `yaml:"source"`
-	DependsOn []string          `yaml:"dependsOn,omitempty"`
-	Variables map[string]string `yaml:"variables,omitempty"`
+	ID			string					`yaml:"id"`
+	Name		string					`yaml:"name"`
+	Type		string					`yaml:"type"`
+	Source		string					`yaml:"source"`
+	DependsOn	[]string				`yaml:"dependsOn,omitempty"`
+	Variables	map[string]interface{}	`yaml:"variables,omitempty"`
+	HealthCheck	*HealthCheck			`yaml:"healthCheck,omitempty"`
 }
 
-// ComponentType defines the type of component
-type ComponentType string
+type HealthCheck struct{
+	Type 		string					`yaml:"type"`
+	Endpoint 	string					`yaml:"endpoint,omitempty"`
+	Interval	string					`yaml:"interval,omitempty"`
+	Timeout 	string					`yaml:"timeout,omitempty"`
+}
 
-const (
-	ComponentTypeDocker     ComponentType = "docker"
-	ComponentTypeKubernetes ComponentType = "kubernetes"
-	ComponentTypeTerraform  ComponentType = "terraform"
-	ComponentTypeHelm       ComponentType = "helm"
-)
+type SecretRef struct {
+	Name		string					`yaml:"name"`
+	Source		string					`yaml:"source"`
+	Key			string					`yaml:"key,omitempty"`
+	Path		string					`yaml:"path,omitempty"`
+}
