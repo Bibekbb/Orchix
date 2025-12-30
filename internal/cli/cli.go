@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Bibekbb/Orchix/internal/core"
 	"github.com/Bibekbb/Orchix/pkg/types"
 	"gopkg.in/yaml.v3"
 )
@@ -25,20 +26,25 @@ func LoadManifest(filename string) (*types.Manifest, error) {
 	return &manifest, nil
 }
 
-// Engine is the core deployment engine
-type Engine struct {
+// NewEngine creates a new deployment engine
+func NewEngine(manifest *types.Manifest) (*core.Engine, error) {
+	return core.NewEngine(manifest)
+}
+
+// SimpleEngine is a temporary implementation
+type SimpleEngine struct {
 	manifest *types.Manifest
 }
 
-// NewEngine creates a new deployment engine
-func NewEngine(manifest *types.Manifest) (*Engine, error) {
-	return &Engine{
+// NewSimpleEngine creates a simple engine for testing
+func NewSimpleEngine(manifest *types.Manifest) *SimpleEngine {
+	return  &SimpleEngine{
 		manifest: manifest,
-	}, nil
+	}
 }
 
 // Deploy executes the deployment
-func (e *Engine) Deploy(ctx context.Context, dryRun bool) error {
+func (e *SimpleEngine) Deploy(ctx context.Context, dryRun bool) error {
 	fmt.Printf("🚀 Deploying: %s\n", e.manifest.AppName)
 	fmt.Printf("🎯 Target: %s\n", e.manifest.Target)
 	fmt.Printf("📦 Components: %d\n\n", len(e.manifest.Components))
@@ -79,7 +85,7 @@ func (e *Engine) Deploy(ctx context.Context, dryRun bool) error {
 }
 
 // Destroy removes all deployed resources
-func (e *Engine) Destroy(ctx context.Context) error {
+func (e *SimpleEngine) Destroy(ctx context.Context) error {
 	fmt.Println("🗑️  Destroying deployment...")
 	fmt.Printf("Application: %s\n", e.manifest.AppName)
 	fmt.Printf("Components to remove: %d\n\n", len(e.manifest.Components))
@@ -97,7 +103,7 @@ func (e *Engine) Destroy(ctx context.Context) error {
 }
 
 // Status shows the current deployment status
-func (e *Engine) Status(ctx context.Context) error {
+func (e *SimpleEngine) Status(ctx context.Context) error {
 	fmt.Println("📊 Deployment Status")
 	fmt.Println("====================")
 	fmt.Printf("Application: %s\n", e.manifest.AppName)
