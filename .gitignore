@@ -9,6 +9,7 @@ vendor/
 *.test
 *.prof
 *.out
+coverage.txt
 
 # IDE
 .vscode/
@@ -25,10 +26,8 @@ Thumbs.db
 *.tfstate
 *.tfstate.backup
 .terraform/
-
-# Logs
 *.log
 logs/
 
 # Test
-coverage.txt
+test-results/
