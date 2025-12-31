@@ -75,7 +75,7 @@ func NewAgent(config *AgentConfig) *Agent {
 
 // Start starts the agent
 func (a *Agent) Start() error {
-	log.Println("🚀 Starting Orchix Agent...")
+	log.Println("Starting Orchix Agent...")
 	log.Printf("Version: %s", Version)
 	
 	// Initialize HTTP server
@@ -85,7 +85,7 @@ func (a *Agent) Start() error {
 	go a.startBackgroundWorkers()
 	
 	// Start HTTP server
-	log.Printf("🌐 Starting HTTP server on %s:%d", a.config.Server.Host, a.config.Server.Port)
+	log.Printf("Starting HTTP server on %s:%d", a.config.Server.Host, a.config.Server.Port)
 	
 	if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("failed to start server: %w", err)
@@ -96,7 +96,7 @@ func (a *Agent) Start() error {
 
 // Stop stops the agent gracefully
 func (a *Agent) Stop() error {
-	log.Println("🛑 Stopping Orchix Agent...")
+	log.Println("Stopping Orchix Agent...")
 	
 	// Signal background workers to stop
 	close(a.stopChan)
@@ -157,7 +157,7 @@ func (a *Agent) startBackgroundWorkers() {
 }
 
 func (a *Agent) watchDirectories() {
-	log.Println("👀 Starting directory watcher...")
+	log.Println("Starting directory watcher...")
 	
 	ticker := time.NewTicker(a.config.Watch.Interval)
 	defer ticker.Stop()
@@ -167,7 +167,7 @@ func (a *Agent) watchDirectories() {
 		case <-ticker.C:
 			a.scanDirectories()
 		case <-a.stopChan:
-			log.Println("📁 Directory watcher stopped")
+			log.Println("Directory watcher stopped")
 			return
 		}
 	}
@@ -180,12 +180,12 @@ func (a *Agent) scanDirectories() {
 	for _, dir := range a.config.Watch.Directories {
 		files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 		if err != nil {
-			log.Printf("❌ Error scanning directory %s: %v", dir, err)
+			log.Printf("Error scanning directory %s: %v", dir, err)
 			continue
 		}
 		
 		for _, file := range files {
-			log.Printf("📄 Found manifest: %s", file)
+			log.Printf(" Found manifest: %s", file)
 			// TODO: Process manifest files
 		}
 	}
@@ -202,7 +202,7 @@ func (a *Agent) watchKubernetes() {
 }
 
 func (a *Agent) collectMetrics() {
-	log.Println("📊 Starting metrics collector...")
+	log.Println("Starting metrics collector...")
 	
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -357,7 +357,7 @@ func (a *Agent) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// TODO: Implement GitHub webhook handling
-	log.Println("📦 Received GitHub webhook")
+	log.Println(" Received GitHub webhook")
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
