@@ -30,3 +30,5 @@ logs/
 
 # Test
 test-results/
+
+./gitigore
