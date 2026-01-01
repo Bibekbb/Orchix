@@ -31,4 +31,4 @@ logs/
 # Test
 test-results/
 
-./gitigore
+.gitignore

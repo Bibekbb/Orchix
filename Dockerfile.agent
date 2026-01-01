@@ -1,0 +1,24 @@
+# ---------- Builder stage ----------
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build for ARM64 Linux
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o orchix-agent ./cmd/Orchix-agent
+
+# ---------- Runtime stage ----------
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates curl
+
+WORKDIR /app
+COPY --from=builder /app/orchix-agent /usr/local/bin/orchix-agent
+RUN mkdir -p /manifests /orchix-manifests
+
+EXPOSE 8080
+ENTRYPOINT ["orchix-agent"]
