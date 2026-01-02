@@ -12,19 +12,19 @@ import (
 type Provider interface {
 	// Name returns the provider name
 	Name() string
-	
+
 	// Plan generates a deployment plan without making changes
 	Plan(ctx context.Context, comp types.Component) (PlanResult, error)
-	
+
 	// Apply executes the deployment
 	Apply(ctx context.Context, comp types.Component) (ApplyResult, error)
-	
+
 	// Destroy removes deployed resources
 	Destroy(ctx context.Context, comp types.Component) error
-	
+
 	// Status checks the current status
 	Status(ctx context.Context, comp types.Component) (StatusResult, error)
-	
+
 	// HealthCheck performs health verification
 	HealthCheck(ctx context.Context, comp types.Component) (HealthCheckResult, error)
 }
@@ -102,6 +102,13 @@ func NewApplyResult() ApplyResult {
 	}
 }
 
+// NewStatusResult creates a new StatusResult
+func NewStatusResult() StatusResult {
+	return StatusResult{
+		Details: make(map[string]string),
+	}
+}
+
 // AddChange adds a change to the plan result
 func (p *PlanResult) AddChange(change Change) {
 	p.Changes = append(p.Changes, change)
@@ -117,6 +124,14 @@ func (p *ApplyResult) AddOutput(key, value string) {
 	p.Outputs[key] = value
 }
 
+// AddDetail adds a detail to status result
+func (s *StatusResult) AddDetail(key, value string) {
+	if s.Details == nil {
+		s.Details = make(map[string]string)
+	}
+	s.Details[key] = value
+}
+
 // Error types for provider errors
 type ProviderError struct {
 	Provider  string `json:"provider"`
@@ -126,7 +141,7 @@ type ProviderError struct {
 }
 
 func (e *ProviderError) Error() string {
-	return fmt.Sprintf("provider %s failed for component %s during %s: %v", 
+	return fmt.Sprintf("provider %s failed for component %s during %s: %v",
 		e.Provider, e.Component, e.Operation, e.Err)
 }
 
@@ -142,4 +157,41 @@ func NewProviderError(provider, component, operation string, err error) *Provide
 		Operation: operation,
 		Err:       err,
 	}
+}
+
+// ProviderMetadata contains metadata about a provider
+type ProviderMetadata struct {
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	Capabilities []string `json:"capabilities"`
+	RequiredTools []string `json:"requiredTools"`
+}
+
+// GetProviderMetadata returns metadata for a provider
+type MetadataProvider interface {
+	GetMetadata() ProviderMetadata
+}
+
+// ValidatableProvider interface for providers that can validate configurations
+type ValidatableProvider interface {
+	ValidateConfig(config map[string]interface{}) error
+}
+
+// RollbackProvider interface for providers that support rollback
+type RollbackProvider interface {
+	Rollback(ctx context.Context, comp types.Component) error
+}
+
+// OutputProvider interface for providers that can output structured data
+type OutputProvider interface {
+	GetOutputs(ctx context.Context, comp types.Component) (map[string]string, error)
+}
+
+// ProviderRegistry manages registered providers
+type ProviderRegistry interface {
+	RegisterProvider(provider Provider) error
+	GetProvider(name string) (Provider, error)
+	ListProviders() []string
+	HasProvider(name string) bool
 }
