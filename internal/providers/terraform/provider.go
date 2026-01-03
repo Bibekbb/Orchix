@@ -1,275 +1,327 @@
-package kubernetes
+package terraform
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Bibekbb/Orchix/internal/providers"
 	"github.com/Bibekbb/Orchix/pkg/types"
 )
 
-// KubernetesProvider implements the Kubernetes deployment provider
-type KubernetesProvider struct {
-	client    *KubernetesClient
-	processor *ManifestProcessor
-	namespace string
+// TerraformProvider implements the Terraform deployment provider
+type TerraformProvider struct {
+	executor      *TerraformExecutor
+	stateManager  *StateManager
+	workDir       string
+	backendConfig map[string]interface{}
+	variables     map[string]interface{}
 }
 
-// NewKubernetesProvider creates a new Kubernetes provider
-func NewKubernetesProvider() *KubernetesProvider {
-	return &KubernetesProvider{
-		namespace: "default",
-	}
+// NewTerraformProvider creates a new Terraform provider
+func NewTerraformProvider() *TerraformProvider {
+	return &TerraformProvider{}
 }
 
 // Name returns the provider name
-func (p *KubernetesProvider) Name() string {
-	return "kubernetes"
+func (p *TerraformProvider) Name() string {
+	return "terraform"
 }
 
 // GetMetadata returns provider metadata
-func (p *KubernetesProvider) GetMetadata() providers.ProviderMetadata {
+func (p *TerraformProvider) GetMetadata() providers.ProviderMetadata {
 	return providers.ProviderMetadata{
-		Name:        "kubernetes",
+		Name:        "terraform",
 		Version:     "1.0.0",
-		Description: "Kubernetes deployment provider",
+		Description: "Terraform infrastructure as code provider",
 		Capabilities: []string{
 			"plan",
 			"apply",
 			"destroy",
 			"status",
-			"health-check",
-			"rollback",
+			"output",
+			"validate",
+			"refresh",
 		},
 		RequiredTools: []string{
-			"kubectl",
+			"terraform",
 		},
 	}
 }
 
 // Plan generates a deployment plan
-func (p *KubernetesProvider) Plan(ctx context.Context, comp types.Component) (providers.PlanResult, error) {
-	fmt.Printf("📋 Planning Kubernetes deployment: %s\n", comp.Name)
+func (p *TerraformProvider) Plan(ctx context.Context, comp types.Component) (providers.PlanResult, error) {
+	fmt.Printf("📋 Planning Terraform deployment: %s\n", comp.Name)
 
 	result := providers.NewPlanResult()
 
-	// Initialize client if not already done
-	if err := p.initializeClient(comp); err != nil {
-		return result, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return result, fmt.Errorf("failed to initialize Terraform: %w", err)
 	}
 
-	// Check Kubernetes connectivity
-	if err := p.client.CheckHealth(ctx); err != nil {
-		return result, fmt.Errorf("Kubernetes cluster not reachable: %w", err)
-	}
-
-	// Process manifests
-	manifests, err := p.processManifests(comp)
+	// Validate configuration first
+	validation, err := p.executor.Validate(ctx)
 	if err != nil {
-		return result, fmt.Errorf("failed to process manifests: %w", err)
+		return result, fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Check existing resources and plan changes
-	for _, manifest := range manifests {
-		kind := manifest.GetKind()
-		name := manifest.GetName()
-		namespace := manifest.GetNamespace()
-		if namespace == "" {
-			namespace = p.namespace
+	if !validation.Valid {
+		for _, diag := range validation.Diagnostics {
+			result.AddChange(providers.Change{
+				Type:    providers.ChangeTypeNoOp,
+				Address: "validation",
+				After:   fmt.Sprintf("%s: %s", diag.Severity, diag.Summary),
+			})
 		}
-
-		// Determine resource action
-		gvr := schema.GroupVersionResource{
-			Group:    manifest.GroupVersionKind().Group,
-			Version:  manifest.GroupVersionKind().Version,
-			Resource: p.client.resourceForKind(kind),
-		}
-
-		// Check if resource exists
-		existing, err := p.client.dynamic.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-		
-		changeType := providers.ChangeTypeCreate
-		if err == nil {
-			changeType = providers.ChangeTypeUpdate
-		}
-
-		result.AddChange(providers.Change{
-			Type:    changeType,
-			Address: fmt.Sprintf("kubernetes.%s.%s", strings.ToLower(kind), name),
-			After:   fmt.Sprintf("%s %s/%s", kind, namespace, name),
-		})
-
-		result.SetOutput(fmt.Sprintf("%s.name", strings.ToLower(kind)), name)
-		result.SetOutput(fmt.Sprintf("%s.namespace", strings.ToLower(kind)), namespace)
+		return result, fmt.Errorf("Terraform configuration is invalid")
 	}
 
-	result.SetOutput("provider", "kubernetes")
-	result.SetOutput("namespace", p.namespace)
-	result.SetOutput("manifest_count", fmt.Sprintf("%d", len(manifests)))
+	// Generate plan
+	destroy := p.shouldDestroy(comp)
+	planResult, err := p.executor.Plan(ctx, destroy)
+	if err != nil {
+		return result, fmt.Errorf("plan failed: %w", err)
+	}
+
+	// Convert to provider changes
+	for _, change := range planResult.Changes {
+		result.AddChange(change)
+	}
+
+	// Add outputs
+	for key, value := range planResult.Outputs {
+		result.SetOutput(key, value)
+	}
+
+	result.SetOutput("provider", "terraform")
+	result.SetOutput("work_dir", p.workDir)
+	result.SetOutput("destroy", fmt.Sprintf("%v", destroy))
 
 	return result, nil
 }
 
 // Apply executes the deployment
-func (p *KubernetesProvider) Apply(ctx context.Context, comp types.Component) (providers.ApplyResult, error) {
+func (p *TerraformProvider) Apply(ctx context.Context, comp types.Component) (providers.ApplyResult, error) {
 	startTime := time.Now()
-	result := providers.NewApplyResult()
 
-	fmt.Printf("☸️  Deploying to Kubernetes: %s\n", comp.Name)
+	fmt.Printf("🛠️  Applying Terraform: %s\n", comp.Name)
 	fmt.Printf("  Source: %s\n", comp.Source)
 
-	// Initialize client
-	if err := p.initializeClient(comp); err != nil {
-		return result, fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return providers.ApplyResult{}, fmt.Errorf("failed to initialize Terraform: %w", err)
 	}
 
-	// Check Kubernetes connectivity
-	if err := p.client.CheckHealth(ctx); err != nil {
-		return result, fmt.Errorf("Kubernetes cluster not reachable: %w", err)
+	// Lock state
+	lockInfo := &LockInfo{
+		Operation: "apply",
+		Info:      fmt.Sprintf("Applying %s", comp.Name),
+		Who:       "orchix",
+		Version:   "1.0.0",
+		Path:      p.workDir,
 	}
 
-	// Create namespace if it doesn't exist
-	if err := p.ensureNamespace(ctx); err != nil {
-		return result, fmt.Errorf("failed to ensure namespace: %w", err)
+	if err := p.stateManager.LockState(ctx, lockInfo); err != nil {
+		return providers.ApplyResult{}, fmt.Errorf("failed to lock state: %w", err)
 	}
 
-	// Apply manifests
-	appliedResources, err := p.client.ApplyManifest(ctx, comp.Source)
+	defer p.stateManager.UnlockState(ctx, lockInfo.ID)
+
+	// Initialize Terraform
+	if err := p.executor.Init(ctx, p.shouldUpgrade(comp)); err != nil {
+		return providers.ApplyResult{}, fmt.Errorf("terraform init failed: %w", err)
+	}
+
+	// Apply changes
+	autoApprove := p.shouldAutoApprove(comp)
+	applyResult, err := p.executor.Apply(ctx, autoApprove)
 	if err != nil {
-		return result, fmt.Errorf("failed to apply manifests: %w", err)
+		return providers.ApplyResult{}, fmt.Errorf("terraform apply failed: %w", err)
 	}
 
-	// Wait for deployments to be ready
-	if err := p.waitForDeployments(ctx, appliedResources); err != nil {
-		return result, fmt.Errorf("failed waiting for deployments: %w", err)
+	// Convert outputs
+	result := providers.NewApplyResult()
+	for key, value := range applyResult.Outputs {
+		var outputStr string
+		if str, ok := value.Value.(string); ok {
+			outputStr = str
+		} else {
+			// Convert to JSON for complex types
+			jsonBytes, _ := json.Marshal(value.Value)
+			outputStr = string(jsonBytes)
+		}
+		result.AddOutput(key, outputStr)
+		
+		if value.Sensitive {
+			result.AddOutput(key+".sensitive", "true")
+		}
 	}
 
-	// Set outputs
-	for _, resource := range appliedResources {
-		result.AddOutput(fmt.Sprintf("%s.%s", strings.ToLower(resource.Kind), resource.Name), 
-			fmt.Sprintf("%s/%s", resource.Namespace, resource.Name))
-	}
+	result.AddOutput("provider", "terraform")
+	result.AddOutput("work_dir", p.workDir)
+	result.AddOutput("applied_at", applyResult.AppliedAt.Format(time.RFC3339))
+	result.Duration = applyResult.Duration
 
-	result.AddOutput("provider", "kubernetes")
-	result.AddOutput("namespace", p.namespace)
-	result.AddOutput("status", "deployed")
-	result.AddOutput("applied_resources", fmt.Sprintf("%d", len(appliedResources)))
-	result.Duration = time.Since(startTime)
-
-	fmt.Println("✅ Kubernetes deployment completed")
+	fmt.Println("✅ Terraform apply completed")
 	return result, nil
 }
 
-// Destroy removes the deployment
-func (p *KubernetesProvider) Destroy(ctx context.Context, comp types.Component) error {
-	fmt.Printf("🗑️  Destroying Kubernetes deployment: %s\n", comp.Name)
+// Destroy removes the infrastructure
+func (p *TerraformProvider) Destroy(ctx context.Context, comp types.Component) error {
+	fmt.Printf("🗑️  Destroying Terraform infrastructure: %s\n", comp.Name)
 
-	// Initialize client
-	if err := p.initializeClient(comp); err != nil {
-		return fmt.Errorf("failed to initialize Kubernetes client: %w", err)
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return fmt.Errorf("failed to initialize Terraform: %w", err)
 	}
 
-	// Delete manifests
-	if err := p.client.DeleteManifest(ctx, comp.Source); err != nil {
-		return fmt.Errorf("failed to delete manifests: %w", err)
+	// Lock state
+	lockInfo := &LockInfo{
+		Operation: "destroy",
+		Info:      fmt.Sprintf("Destroying %s", comp.Name),
+		Who:       "orchix",
+		Version:   "1.0.0",
+		Path:      p.workDir,
 	}
 
-	// Optionally delete namespace
-	if p.shouldDeleteNamespace(comp) {
-		fmt.Printf("  Deleting namespace: %s\n", p.namespace)
-		if err := p.client.DeleteNamespace(ctx, p.namespace); err != nil {
-			fmt.Printf("  Warning: Failed to delete namespace: %v\n", err)
+	if err := p.stateManager.LockState(ctx, lockInfo); err != nil {
+		return fmt.Errorf("failed to lock state: %w", err)
+	}
+
+	defer p.stateManager.UnlockState(ctx, lockInfo.ID)
+
+	// Initialize Terraform
+	if err := p.executor.Init(ctx, false); err != nil {
+		return fmt.Errorf("terraform init failed: %w", err)
+	}
+
+	// Destroy infrastructure
+	autoApprove := p.shouldAutoApprove(comp)
+	if err := p.executor.Destroy(ctx, autoApprove); err != nil {
+		return fmt.Errorf("terraform destroy failed: %w", err)
+	}
+
+	// Clean up state if requested
+	if p.shouldCleanState(comp) {
+		if err := p.cleanupState(); err != nil {
+			fmt.Printf("Warning: failed to cleanup state: %v\n", err)
 		}
 	}
 
-	fmt.Println("✅ Kubernetes resources destroyed")
+	fmt.Println("✅ Terraform destroy completed")
 	return nil
 }
 
-// Status checks the deployment status
-func (p *KubernetesProvider) Status(ctx context.Context, comp types.Component) (providers.StatusResult, error) {
+// Status checks the infrastructure status
+func (p *TerraformProvider) Status(ctx context.Context, comp types.Component) (providers.StatusResult, error) {
 	result := providers.NewStatusResult()
 
-	fmt.Printf("📊 Checking Kubernetes status: %s\n", comp.Name)
+	fmt.Printf("📊 Checking Terraform status: %s\n", comp.Name)
 
-	// Initialize client
-	if err := p.initializeClient(comp); err != nil {
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
 		result.Status = "unknown"
-		result.Message = fmt.Sprintf("Failed to initialize client: %v", err)
+		result.Message = fmt.Sprintf("Failed to initialize: %v", err)
 		result.Healthy = false
 		return result, nil
 	}
 
-	// Check cluster health
-	if err := p.client.CheckHealth(ctx); err != nil {
-		result.Status = "unreachable"
-		result.Message = fmt.Sprintf("Kubernetes cluster not reachable: %v", err)
-		result.Healthy = false
-		return result, nil
-	}
-
-	// Get cluster info
-	clusterInfo, err := p.client.GetClusterInfo(ctx)
-	if err != nil {
-		result.Status = "unknown"
-		result.Message = fmt.Sprintf("Failed to get cluster info: %v", err)
-		result.Healthy = false
-		return result, nil
-	}
-
-	result.AddDetail("cluster_version", clusterInfo.Version)
-	result.AddDetail("node_count", fmt.Sprintf("%d", clusterInfo.NodeCount))
-
-	// Process manifests to know what to check
-	manifests, err := p.processManifests(comp)
+	// Get Terraform version
+	version, err := p.executor.Version(ctx)
 	if err != nil {
 		result.Status = "error"
-		result.Message = fmt.Sprintf("Failed to process manifests: %v", err)
+		result.Message = fmt.Sprintf("Failed to get Terraform version: %v", err)
 		result.Healthy = false
 		return result, nil
 	}
 
-	// Check each resource
-	allHealthy := true
-	var messages []string
+	result.AddDetail("terraform_version", version)
 
-	for _, manifest := range manifests {
-		kind := manifest.GetKind()
-		name := manifest.GetName()
-		namespace := manifest.GetNamespace()
-		if namespace == "" {
-			namespace = p.namespace
-		}
-
-		resourceStatus, err := p.checkResourceStatus(ctx, kind, namespace, name)
-		if err != nil {
-			messages = append(messages, fmt.Sprintf("%s/%s: error (%v)", kind, name, err))
-			allHealthy = false
-			continue
-		}
-
-		result.AddDetail(fmt.Sprintf("%s.%s.status", strings.ToLower(kind), name), resourceStatus.Status)
-		result.AddDetail(fmt.Sprintf("%s.%s.message", strings.ToLower(kind), name), resourceStatus.Message)
-
-		if !resourceStatus.Healthy {
-			allHealthy = false
-		}
-
-		messages = append(messages, fmt.Sprintf("%s/%s: %s", kind, name, resourceStatus.Status))
+	// Validate configuration
+	validation, err := p.executor.Validate(ctx)
+	if err != nil {
+		result.Status = "invalid"
+		result.Message = fmt.Sprintf("Validation failed: %v", err)
+		result.Healthy = false
+		return result, nil
 	}
 
-	result.Status = "running"
-	result.Message = strings.Join(messages, "; ")
-	result.Healthy = allHealthy
+	if !validation.Valid {
+		result.Status = "invalid"
+		result.Message = "Configuration validation failed"
+		result.Healthy = false
+		
+		for _, diag := range validation.Diagnostics {
+			result.AddDetail(diag.Severity, diag.Summary)
+		}
+		
+		return result, nil
+	}
+
+	// Get state resources
+	resources, err := p.executor.StateList(ctx)
+	if err != nil {
+		result.Status = "error"
+		result.Message = fmt.Sprintf("Failed to list state resources: %v", err)
+		result.Healthy = false
+		return result, nil
+	}
+
+	// Get outputs
+	outputs, err := p.executor.Output(ctx)
+	if err != nil {
+		result.Status = "error"
+		result.Message = fmt.Sprintf("Failed to get outputs: %v", err)
+		result.Healthy = false
+		return result, nil
+	}
+
+	// Determine status
+	if len(resources) == 0 {
+		result.Status = "empty"
+		result.Message = "No resources in state"
+		result.Healthy = true
+	} else {
+		result.Status = "managed"
+		result.Message = fmt.Sprintf("Managing %d resource(s)", len(resources))
+		result.Healthy = true
+	}
+
+	// Add details
+	result.AddDetail("resource_count", fmt.Sprintf("%d", len(resources)))
+	result.AddDetail("output_count", fmt.Sprintf("%d", len(outputs)))
+	result.AddDetail("work_dir", p.workDir)
+
+	// List resources
+	for i, resource := range resources {
+		if i < 10 { // Limit to first 10 resources
+			result.AddDetail(fmt.Sprintf("resource_%d", i), resource.Address)
+		}
+	}
+
+	// List outputs
+	for key, value := range outputs {
+		if !value.Sensitive {
+			var valStr string
+			if str, ok := value.Value.(string); ok {
+				valStr = str
+			} else {
+				jsonBytes, _ := json.Marshal(value.Value)
+				valStr = string(jsonBytes)
+			}
+			result.AddDetail(fmt.Sprintf("output.%s", key), valStr)
+		}
+	}
 
 	return result, nil
 }
 
 // HealthCheck performs health verification
-func (p *KubernetesProvider) HealthCheck(ctx context.Context, comp types.Component) (providers.HealthCheckResult, error) {
+func (p *TerraformProvider) HealthCheck(ctx context.Context, comp types.Component) (providers.HealthCheckResult, error) {
 	startTime := time.Now()
 
 	status, err := p.Status(ctx, comp)
@@ -287,36 +339,131 @@ func (p *KubernetesProvider) HealthCheck(ctx context.Context, comp types.Compone
 		Message:     status.Message,
 		Duration:    time.Since(startTime),
 		LastChecked: time.Now(),
+		Details:     status.Details,
 	}, nil
 }
 
-// Rollback rolls back to previous version
-func (p *KubernetesProvider) Rollback(ctx context.Context, comp types.Component) error {
-	// Kubernetes rollback would require keeping revision history
-	// For now, we'll implement a simple approach
-	fmt.Printf("↩️  Rolling back Kubernetes deployment: %s\n", comp.Name)
-
-	// Get current deployment revision
-	deployments, err := p.getDeploymentsFromManifest(comp)
-	if err != nil {
-		return fmt.Errorf("failed to get deployments: %w", err)
+// Output gets Terraform outputs
+func (p *TerraformProvider) Output(ctx context.Context, comp types.Component) (map[string]string, error) {
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return nil, fmt.Errorf("failed to initialize Terraform: %w", err)
 	}
 
-	for _, dep := range deployments {
-		// Rollback deployment to previous revision
-		if err := p.rollbackDeployment(ctx, dep); err != nil {
-			return fmt.Errorf("failed to rollback deployment %s: %w", dep, err)
+	outputs, err := p.executor.Output(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get outputs: %w", err)
+	}
+
+	result := make(map[string]string)
+	for key, value := range outputs {
+		var valStr string
+		if str, ok := value.Value.(string); ok {
+			valStr = str
+		} else {
+			jsonBytes, _ := json.Marshal(value.Value)
+			valStr = string(jsonBytes)
 		}
+		result[key] = valStr
+		
+		if value.Sensitive {
+			result[key+".sensitive"] = "true"
+		}
+	}
+
+	return result, nil
+}
+
+// Validate validates Terraform configuration
+func (p *TerraformProvider) Validate(ctx context.Context, comp types.Component) error {
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return fmt.Errorf("failed to initialize Terraform: %w", err)
+	}
+
+	validation, err := p.executor.Validate(ctx)
+	if err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	if !validation.Valid {
+		var errors []string
+		for _, diag := range validation.Diagnostics {
+			if diag.Severity == "error" {
+				errors = append(errors, diag.Summary)
+			}
+		}
+		return fmt.Errorf("Terraform configuration invalid: %s", strings.Join(errors, "; "))
 	}
 
 	return nil
 }
 
+// Refresh refreshes Terraform state
+func (p *TerraformProvider) Refresh(ctx context.Context, comp types.Component) error {
+	fmt.Printf("🔄 Refreshing Terraform state: %s\n", comp.Name)
+
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return fmt.Errorf("failed to initialize Terraform: %w", err)
+	}
+
+	// Initialize Terraform
+	if err := p.executor.Init(ctx, false); err != nil {
+		return fmt.Errorf("terraform init failed: %w", err)
+	}
+
+	// Refresh state
+	if err := p.executor.Refresh(ctx); err != nil {
+		return fmt.Errorf("terraform refresh failed: %w", err)
+	}
+
+	fmt.Println("✅ Terraform refresh completed")
+	return nil
+}
+
+// Rollback rolls back to previous state
+func (p *TerraformProvider) Rollback(ctx context.Context, comp types.Component) error {
+	fmt.Printf("↩️  Rolling back Terraform: %s\n", comp.Name)
+
+	// Initialize provider
+	if err := p.initialize(comp); err != nil {
+		return fmt.Errorf("failed to initialize Terraform: %w", err)
+	}
+
+	// List backups
+	backups, err := p.stateManager.ListBackups()
+	if err != nil {
+		return fmt.Errorf("failed to list backups: %w", err)
+	}
+
+	if len(backups) == 0 {
+		return fmt.Errorf("no backups available for rollback")
+	}
+
+	// Get latest backup
+	latestBackup := backups[0]
+	for _, backup := range backups[1:] {
+		// Simple comparison based on timestamp in filename
+		if backup > latestBackup {
+			latestBackup = backup
+		}
+	}
+
+	// Restore from backup
+	if err := p.stateManager.RestoreState(latestBackup); err != nil {
+		return fmt.Errorf("failed to restore from backup: %w", err)
+	}
+
+	fmt.Printf("✅ Restored from backup: %s\n", filepath.Base(latestBackup))
+	return nil
+}
+
 // ValidateConfig validates component configuration
-func (p *KubernetesProvider) ValidateConfig(config map[string]interface{}) error {
+func (p *TerraformProvider) ValidateConfig(config map[string]interface{}) error {
 	// Check for required fields
 	if source, ok := config["source"].(string); !ok || source == "" {
-		return fmt.Errorf("source is required for Kubernetes components")
+		return fmt.Errorf("source is required for Terraform components")
 	}
 
 	// Check if source exists
@@ -326,254 +473,171 @@ func (p *KubernetesProvider) ValidateConfig(config map[string]interface{}) error
 		}
 	}
 
-	// Validate namespace if provided
-	if namespace, ok := config["namespace"].(string); ok && namespace != "" {
-		if !isValidKubernetesName(namespace) {
-			return fmt.Errorf("invalid namespace: %s", namespace)
-		}
-	}
-
 	return nil
 }
 
 // Helper methods
-func (p *KubernetesProvider) initializeClient(comp types.Component) error {
-	if p.client != nil {
-		return nil // Already initialized
+func (p *TerraformProvider) initialize(comp types.Component) error {
+	// Set work directory
+	p.workDir = comp.Source
+
+	// Parse variables
+	p.variables = comp.Variables
+
+	// Parse backend configuration
+	if backend, ok := comp.Variables["backend"].(map[string]interface{}); ok {
+		p.backendConfig = backend
 	}
 
-	// Get configuration from component variables
-	kubeconfig := ""
-	if kc, ok := comp.Variables["kubeconfig"].(string); ok {
-		kubeconfig = kc
-	}
+	// Create executor
+	p.executor = NewTerraformExecutor(p.workDir)
 
-	context := ""
-	if ctx, ok := comp.Variables["context"].(string); ok {
-		context = ctx
-	}
-
-	if ns, ok := comp.Variables["namespace"].(string); ok && ns != "" {
-		p.namespace = ns
-	}
-
-	// Create client
-	client, err := NewKubernetesClient(
-		WithKubeconfig(kubeconfig),
-		WithContext(context),
-		WithNamespace(p.namespace),
-	)
-	if err != nil {
-		return err
-	}
-
-	p.client = client
-
-	// Create manifest processor
-	templateData := make(map[string]interface{})
-	if vars, ok := comp.Variables["template_vars"].(map[string]interface{}); ok {
-		for k, v := range vars {
-			templateData[k] = v
+	// Set timeout if specified
+	if timeout, ok := comp.Variables["timeout"].(string); ok {
+		if duration, err := time.ParseDuration(timeout); err == nil {
+			p.executor.SetTimeout(duration)
 		}
 	}
 
-	p.processor = NewManifestProcessor(p.namespace, templateData)
+	// Set backend file if specified
+	if backendFile, ok := comp.Variables["backend_file"].(string); ok {
+		p.executor.SetBackendFile(backendFile)
+	}
+
+	// Set state file if specified
+	if stateFile, ok := comp.Variables["state_file"].(string); ok {
+		p.executor.SetStateFile(stateFile)
+	}
+
+	// Create variables file
+	if len(comp.Variables) > 0 {
+		varsFile, err := p.createVariablesFile(comp.Variables)
+		if err != nil {
+			return fmt.Errorf("failed to create variables file: %w", err)
+		}
+		p.executor.SetVarsFile(varsFile)
+	}
+
+	// Create state manager
+	p.stateManager = NewStateManager(p.workDir)
 
 	return nil
 }
 
-func (p *KubernetesProvider) processManifests(comp types.Component) ([]unstructured.Unstructured, error) {
-	// Check if source is a file or directory
-	info, err := os.Stat(comp.Source)
-	if err != nil {
-		return nil, err
-	}
-
-	if info.IsDir() {
-		return p.processor.ProcessDirectory(comp.Source)
-	} else {
-		return p.processor.ProcessManifest(comp.Source)
-	}
-}
-
-func (p *KubernetesProvider) ensureNamespace(ctx context.Context) error {
-	// Check if namespace exists
-	namespaces, err := p.client.GetNamespaces(ctx)
-	if err != nil {
-		return err
-	}
-
-	for _, ns := range namespaces {
-		if ns == p.namespace {
-			return nil // Namespace exists
+func (p *TerraformProvider) createVariablesFile(variables map[string]interface{}) (string, error) {
+	// Filter out special variables
+	tfVars := make(map[string]interface{})
+	for key, value := range variables {
+		if !isSpecialVariable(key) {
+			tfVars[key] = value
 		}
 	}
 
-	// Create namespace
-	fmt.Printf("  Creating namespace: %s\n", p.namespace)
-	return p.client.CreateNamespace(ctx, p.namespace)
-}
-
-func (p *KubernetesProvider) waitForDeployments(ctx context.Context, resources []AppliedResource) error {
-	for _, resource := range resources {
-		if resource.Kind == "Deployment" {
-			fmt.Printf("  Waiting for deployment: %s/%s\n", resource.Namespace, resource.Name)
-			if err := p.client.WaitForDeployment(ctx, resource.Namespace, resource.Name, 5*time.Minute); err != nil {
-				return fmt.Errorf("deployment %s/%s not ready: %w", resource.Namespace, resource.Name, err)
-			}
-			fmt.Printf("  ✅ Deployment ready: %s/%s\n", resource.Namespace, resource.Name)
-		}
+	if len(tfVars) == 0 {
+		return "", nil
 	}
-	return nil
-}
 
-func (p *KubernetesProvider) checkResourceStatus(ctx context.Context, kind, namespace, name string) (*ResourceStatus, error) {
-	switch kind {
-	case "Deployment":
-		return p.checkDeploymentStatus(ctx, namespace, name)
-	case "Service":
-		return p.checkServiceStatus(ctx, namespace, name)
-	case "Pod":
-		return p.checkPodStatus(ctx, namespace, name)
-	default:
-		// Generic check - just see if resource exists
-		return &ResourceStatus{
-			Status:  "exists",
-			Message: "Resource exists",
-			Healthy: true,
-		}, nil
-	}
-}
-
-func (p *KubernetesProvider) checkDeploymentStatus(ctx context.Context, namespace, name string) (*ResourceStatus, error) {
-	status, err := p.client.GetDeploymentStatus(ctx, namespace, name)
+	// Create .tfvars file
+	varsFile := filepath.Join(p.workDir, "orchix.auto.tfvars.json")
+	
+	data, err := json.MarshalIndent(tfVars, "", "  ")
 	if err != nil {
-		return &ResourceStatus{
-			Status:  "not_found",
-			Message: fmt.Sprintf("Deployment not found: %v", err),
-			Healthy: false,
-		}, nil
+		return "", fmt.Errorf("failed to marshal variables: %w", err)
 	}
 
-	if status.ReadyReplicas == status.Replicas && status.Replicas > 0 {
-		return &ResourceStatus{
-			Status:  "ready",
-			Message: fmt.Sprintf("Ready (%d/%d replicas)", status.ReadyReplicas, status.Replicas),
-			Healthy: true,
-		}, nil
+	if err := os.WriteFile(varsFile, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write variables file: %w", err)
 	}
 
-	return &ResourceStatus{
-		Status:  "not_ready",
-		Message: fmt.Sprintf("Not ready (%d/%d replicas)", status.ReadyReplicas, status.Replicas),
-		Healthy: false,
-	}, nil
+	return varsFile, nil
 }
 
-func (p *KubernetesProvider) checkServiceStatus(ctx context.Context, namespace, name string) (*ResourceStatus, error) {
-	status, err := p.client.GetServiceStatus(ctx, namespace, name)
-	if err != nil {
-		return &ResourceStatus{
-			Status:  "not_found",
-			Message: fmt.Sprintf("Service not found: %v", err),
-			Healthy: false,
-		}, nil
+func (p *TerraformProvider) shouldDestroy(comp types.Component) bool {
+	if destroy, ok := comp.Variables["destroy"].(string); ok {
+		return strings.ToLower(destroy) == "true"
 	}
-
-	return &ResourceStatus{
-		Status:  "ready",
-		Message: fmt.Sprintf("Type: %s, ClusterIP: %s", status.Type, status.ClusterIP),
-		Healthy: true,
-	}, nil
-}
-
-func (p *KubernetesProvider) checkPodStatus(ctx context.Context, namespace, name string) (*ResourceStatus, error) {
-	pod, err := p.client.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return &ResourceStatus{
-			Status:  "not_found",
-			Message: fmt.Sprintf("Pod not found: %v", err),
-			Healthy: false,
-		}, nil
-	}
-
-	if pod.Status.Phase == corev1.PodRunning {
-		return &ResourceStatus{
-			Status:  "running",
-			Message: "Pod is running",
-			Healthy: true,
-		}, nil
-	}
-
-	return &ResourceStatus{
-		Status:  string(pod.Status.Phase),
-		Message: fmt.Sprintf("Pod phase: %s", pod.Status.Phase),
-		Healthy: pod.Status.Phase == corev1.PodRunning,
-	}, nil
-}
-
-func (p *KubernetesProvider) shouldDeleteNamespace(comp types.Component) bool {
-	if deleteNs, ok := comp.Variables["delete_namespace"].(string); ok {
-		return strings.ToLower(deleteNs) == "true"
-	}
-	if deleteNs, ok := comp.Variables["delete_namespace"].(bool); ok {
-		return deleteNs
+	if destroy, ok := comp.Variables["destroy"].(bool); ok {
+		return destroy
 	}
 	return false
 }
 
-func (p *KubernetesProvider) getDeploymentsFromManifest(comp types.Component) ([]string, error) {
-	manifests, err := p.processManifests(comp)
-	if err != nil {
-		return nil, err
+func (p *TerraformProvider) shouldAutoApprove(comp types.Component) bool {
+	if autoApprove, ok := comp.Variables["auto_approve"].(string); ok {
+		return strings.ToLower(autoApprove) == "true"
 	}
-
-	var deployments []string
-	for _, manifest := range manifests {
-		if manifest.GetKind() == "Deployment" {
-			deployments = append(deployments, manifest.GetName())
-		}
+	if autoApprove, ok := comp.Variables["auto_approve"].(bool); ok {
+		return autoApprove
 	}
-
-	return deployments, nil
+	return true // Default to auto-approve for automation
 }
 
-func (p *KubernetesProvider) rollbackDeployment(ctx context.Context, deploymentName string) error {
-	// Get deployment rollout history
-	// This is a simplified implementation
-	// In production, you'd want to use kubectl rollout undo
-	cmd := exec.CommandContext(ctx, "kubectl", "rollout", "undo", "deployment", deploymentName, 
-		"-n", p.namespace)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	
-	return cmd.Run()
+func (p *TerraformProvider) shouldUpgrade(comp types.Component) bool {
+	if upgrade, ok := comp.Variables["upgrade"].(string); ok {
+		return strings.ToLower(upgrade) == "true"
+	}
+	if upgrade, ok := comp.Variables["upgrade"].(bool); ok {
+		return upgrade
+	}
+	return false
 }
 
-func isValidKubernetesName(name string) bool {
-	if len(name) > 253 {
-		return false
+func (p *TerraformProvider) shouldCleanState(comp types.Component) bool {
+	if cleanState, ok := comp.Variables["clean_state"].(string); ok {
+		return strings.ToLower(cleanState) == "true"
 	}
-	
-	// Must match regex: [a-z0-9]([-a-z0-9]*[a-z0-9])?
-	for i, r := range name {
-		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
-			return false
-		}
-		if i == 0 && r == '-' {
-			return false
-		}
-		if i == len(name)-1 && r == '-' {
-			return false
-		}
+	if cleanState, ok := comp.Variables["clean_state"].(bool); ok {
+		return cleanState
 	}
-	
-	return true
+	return false
 }
 
-// ResourceStatus represents the status of a Kubernetes resource
-type ResourceStatus struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
-	Healthy bool   `json:"healthy"`
+func (p *TerraformProvider) cleanupState() error {
+	stateFiles := []string{
+		"terraform.tfstate",
+		"terraform.tfstate.backup",
+		".terraform.lock.hcl",
+		"orchix.auto.tfvars.json",
+		"tfplan",
+	}
+
+	for _, file := range stateFiles {
+		path := filepath.Join(p.workDir, file)
+		if _, err := os.Stat(path); err == nil {
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("failed to remove %s: %w", file, err)
+			}
+		}
+	}
+
+	// Remove .terraform directory
+	terraformDir := filepath.Join(p.workDir, ".terraform")
+	if _, err := os.Stat(terraformDir); err == nil {
+		if err := os.RemoveAll(terraformDir); err != nil {
+			return fmt.Errorf("failed to remove .terraform directory: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func isSpecialVariable(key string) bool {
+	specialVars := []string{
+		"backend",
+		"backend_file",
+		"state_file",
+		"timeout",
+		"auto_approve",
+		"upgrade",
+		"destroy",
+		"clean_state",
+	}
+
+	for _, special := range specialVars {
+		if key == special {
+			return true
+		}
+	}
+
+	return false
 }
