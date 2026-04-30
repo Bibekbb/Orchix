@@ -42,7 +42,7 @@
 
 ---
 
-## ✨ Why Orchix?
+## Why Orchix?
 
 | Problem | Solution |
 |------|------|
@@ -53,7 +53,7 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -93,7 +93,7 @@ Orchix destroy
 
 ---
 
-## 📋 Manifest Showcase
+## Manifest Showcase
 
 <details>
 <summary><strong>Full Example</strong></summary>
@@ -128,7 +128,7 @@ components:
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 | Component       | Responsibility         |
 | --------------- | ---------------------- |
@@ -186,7 +186,7 @@ docs/       Documentation
 
 ---
 
-## 🗺 Roadmap
+## Roadmap
 
 * v0.3 — Multi-cloud, policies
 * v0.4 — GitOps & drift detection
@@ -195,7 +195,7 @@ docs/       Documentation
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome!
 
