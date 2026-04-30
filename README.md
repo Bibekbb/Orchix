@@ -139,7 +139,7 @@ components:
 
 ---
 
-## 🔌 Supported Providers
+## Supported Providers
 
 * Terraform
 * Kubernetes
@@ -152,7 +152,7 @@ components:
 
 ---
 
-## 📊 Feature Comparison
+## Feature Comparison
 
 | Feature                  | Orchix | Terraform | Helm |
 | ------------------------ | --------- | --------- | ---- |
@@ -163,7 +163,7 @@ components:
 
 ---
 
-## 🛠 Development
+## Development
 
 ```bash
 git clone https://github.com/Orchix/Orchix.git
